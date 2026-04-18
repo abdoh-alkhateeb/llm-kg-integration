@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import networkx as nx
 
 from kg_extractor import extract_knowledge_graph
+from kg_qa import answer_question
 
 graph = nx.DiGraph()
 
@@ -75,6 +76,13 @@ def draw_graph():
     return fig
 
 
+def ask_graph(question: str):
+    try:
+        return answer_question(graph, question)
+    except Exception as exc:
+        return f"Question answering failed: {exc}"
+
+
 with gr.Blocks(title="NeuroGraph") as demo:
     gr.Markdown("# NeuroGraph")
     gr.Markdown("""
@@ -120,11 +128,11 @@ with gr.Blocks(title="NeuroGraph") as demo:
                 lines=10,
             )
 
-            # ask_btn.click(
-            #     fn=ask_graph,
-            #     inputs=question_input,
-            #     outputs=answer_output,
-            # )
+            ask_btn.click(
+                fn=ask_graph,
+                inputs=question_input,
+                outputs=answer_output,
+            )
 
 if __name__ == "__main__":
     demo.launch()
