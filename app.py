@@ -1,7 +1,79 @@
 import gradio as gr
+import matplotlib.pyplot as plt
 import networkx as nx
 
-graph = nx.Graph()
+from kg_extractor import extract_knowledge_graph
+
+graph = nx.DiGraph()
+
+
+def ingest_corpus(corpus: str):
+    try:
+        extracted_graph = extract_knowledge_graph(corpus)
+    except Exception as exc:
+        return f"Extraction failed: {exc}", draw_graph()
+
+    for entity in extracted_graph["entities"]:
+        graph.add_node(
+            entity["id"],
+            type=entity["type"],
+            description=entity["description"],
+        )
+
+    for relationship in extracted_graph["relationships"]:
+        graph.add_edge(
+            relationship["source"],
+            relationship["target"],
+            relation=relationship["relation"],
+            evidence=relationship["evidence"],
+        )
+
+    entity_count = len(extracted_graph["entities"])
+    relationship_count = len(extracted_graph["relationships"])
+    return (
+        f"Added {entity_count} entities and {relationship_count} relationships.",
+        draw_graph(),
+    )
+
+
+def draw_graph():
+    fig, ax = plt.subplots(figsize=(9, 6))
+    ax.set_axis_off()
+
+    if graph.number_of_nodes() == 0:
+        ax.text(0.5, 0.5, "No graph data yet.", ha="center", va="center")
+        return fig
+
+    pos = nx.spring_layout(graph, seed=7)
+    nx.draw_networkx_nodes(
+        graph,
+        pos,
+        ax=ax,
+        node_size=1800,
+        node_color="#d9ead3",
+        edgecolors="#38761d",
+    )
+    nx.draw_networkx_labels(graph, pos, ax=ax, font_size=9)
+    nx.draw_networkx_edges(
+        graph,
+        pos,
+        ax=ax,
+        arrows=True,
+        arrowstyle="-|>",
+        arrowsize=16,
+        edge_color="#666666",
+    )
+    nx.draw_networkx_edge_labels(
+        graph,
+        pos,
+        ax=ax,
+        edge_labels=nx.get_edge_attributes(graph, "relation"),
+        font_size=8,
+    )
+
+    fig.tight_layout()
+    return fig
+
 
 with gr.Blocks(title="NeuroGraph") as demo:
     gr.Markdown("# NeuroGraph")
@@ -28,11 +100,11 @@ with gr.Blocks(title="NeuroGraph") as demo:
             ingest_status = gr.Textbox(label="Pipeline Status")
             graph_output = gr.Plot(label="Knowledge Graph")
 
-            # ingest_btn.click(
-            #     fn=ingest_corpus,
-            #     inputs=corpus_input,
-            #     outputs=[ingest_status, graph_output],
-            # )
+            ingest_btn.click(
+                fn=ingest_corpus,
+                inputs=corpus_input,
+                outputs=[ingest_status, graph_output],
+            )
 
         with gr.Tab("💬 Ask Questions"):
             question_input = gr.Textbox(
