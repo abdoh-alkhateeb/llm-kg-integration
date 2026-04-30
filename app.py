@@ -32,7 +32,8 @@ def ingest_corpus(corpus: str):
     entity_count = len(extracted_graph["entities"])
     relationship_count = len(extracted_graph["relationships"])
     return (
-        f"Added {entity_count} entities and {relationship_count} relationships.",
+        "LLM-augmented KG complete: "
+        f"added {entity_count} entities and {relationship_count} relationships.",
         draw_graph(),
     )
 
@@ -88,15 +89,13 @@ with gr.Blocks(title="NeuroGraph") as demo:
     gr.Markdown("""
     A lightweight integration of large language models and knowledge graphs.
 
-    ### Supported capabilities
-    - Corpus ingestion
-    - Automated knowledge graph construction
-    - Graph-enhanced LLM reasoning
-    - Semantic querying
+    ### Applications
+    - LLM-augmented KG: corpus ingestion and automated knowledge graph construction
+    - KG-enhanced LLM: graph-grounded question answering over extracted entities and relationships
     """)
 
     with gr.Tabs():
-        with gr.Tab("📚 Ingest Corpus"):
+        with gr.Tab("LLM-augmented KG: Ingest Corpus"):
             corpus_input = gr.Textbox(
                 label="Corpus Input",
                 placeholder="Paste documents, notes, articles, transcripts, etc.",
@@ -114,7 +113,7 @@ with gr.Blocks(title="NeuroGraph") as demo:
                 outputs=[ingest_status, graph_output],
             )
 
-        with gr.Tab("💬 Ask Questions"):
+        with gr.Tab("KG-enhanced LLM: Ask Questions"):
             question_input = gr.Textbox(
                 label="Question",
                 placeholder="Ask something about the knowledge graph...",
