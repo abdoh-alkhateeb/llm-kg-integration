@@ -1,137 +1,291 @@
+"""NeuroGraph: a Gradio workbench for LLM-KG integration.
+
+Hosts two applications side-by-side over a shared, per-session knowledge graph:
+
+    * LLM-augmented KG  — extract a structured graph from text using an LLM.
+    * KG-enhanced LLM   — answer questions grounded in the extracted graph.
+"""
+
+from __future__ import annotations
+
 import gradio as gr
-import matplotlib.pyplot as plt
 import networkx as nx
 
-from kg_extractor import extract_knowledge_graph
-from kg_qa import answer_question
+from config import OLLAMA_MODEL
+from kg_enhanced_llm import (
+    AnswerResult,
+    QuestionAnsweringError,
+    answer_question,
+)
+from kg_store import KnowledgeGraphStore
+from kg_visualizer import render_graph
+from llm_augmented_kg import ExtractionError, extract_knowledge_graph
 
-graph = nx.DiGraph()
+SAMPLE_CORPORA: dict[str, str] = {
+    "— Choose a sample —": "",
+    "Albert Einstein (biography)": (
+        "Albert Einstein was a German-born theoretical physicist who developed "
+        "the theory of relativity. He was born in Ulm, Germany in 1879 and later "
+        "emigrated to the United States, where he worked at the Institute for "
+        "Advanced Study in Princeton. Einstein received the Nobel Prize in "
+        "Physics in 1921 for his discovery of the photoelectric effect."
+    ),
+    "Apollo 11 (history)": (
+        "Apollo 11 was a NASA spaceflight that landed the first humans on the "
+        "Moon on July 20, 1969. Commander Neil Armstrong and lunar module pilot "
+        "Buzz Aldrin walked on the lunar surface while Michael Collins piloted "
+        "the Command Module Columbia in lunar orbit. The mission launched from "
+        "Kennedy Space Center in Florida."
+    ),
+    "The World Wide Web (technology)": (
+        "In 1989, Tim Berners-Lee proposed the World Wide Web while working at "
+        "CERN, a research organization in Switzerland. The first website went "
+        "live in 1991. In 1994, Berners-Lee founded the World Wide Web "
+        "Consortium at MIT to develop open standards for the web."
+    ),
+}
+
+EXAMPLE_QUESTIONS: list[list[str]] = [
+    ["What organizations are mentioned in the graph?"],
+    ["Who is the most connected entity in the graph?"],
+    ["Summarize the relationships between people and organizations."],
+]
+
+ENTITY_HEADERS = ["Entity", "Type", "Description"]
+RELATIONSHIP_HEADERS = ["Source", "Relation", "Target", "Evidence"]
+
+INITIAL_STATUS = "Ready. Paste or select a corpus to begin."
 
 
-def ingest_corpus(corpus: str):
-    try:
-        extracted_graph = extract_knowledge_graph(corpus)
-    except Exception as exc:
-        return f"Extraction failed: {exc}", draw_graph()
-
-    for entity in extracted_graph["entities"]:
-        graph.add_node(
-            entity["id"],
-            type=entity["type"],
-            description=entity["description"],
-        )
-
-    for relationship in extracted_graph["relationships"]:
-        graph.add_edge(
-            relationship["source"],
-            relationship["target"],
-            relation=relationship["relation"],
-            evidence=relationship["evidence"],
-        )
-
-    entity_count = len(extracted_graph["entities"])
-    relationship_count = len(extracted_graph["relationships"])
+def _stats_markdown(store: KnowledgeGraphStore) -> str:
     return (
-        "LLM-augmented KG complete: "
-        f"added {entity_count} entities and {relationship_count} relationships.",
-        draw_graph(),
+        f"**Entities** {store.entity_count} "
+        f"&nbsp;·&nbsp; "
+        f"**Relationships** {store.relationship_count} "
+        f"&nbsp;·&nbsp; "
+        f"**Model** `{OLLAMA_MODEL}`"
     )
 
 
-def draw_graph():
-    fig, ax = plt.subplots(figsize=(9, 6))
-    ax.set_axis_off()
-
-    if graph.number_of_nodes() == 0:
-        ax.text(0.5, 0.5, "No graph data yet.", ha="center", va="center")
-        return fig
-
-    pos = nx.spring_layout(graph, seed=7)
-    nx.draw_networkx_nodes(
-        graph,
-        pos,
-        ax=ax,
-        node_size=1800,
-        node_color="#d9ead3",
-        edgecolors="#38761d",
-    )
-    nx.draw_networkx_labels(graph, pos, ax=ax, font_size=9)
-    nx.draw_networkx_edges(
-        graph,
-        pos,
-        ax=ax,
-        arrows=True,
-        arrowstyle="-|>",
-        arrowsize=16,
-        edge_color="#666666",
-    )
-    nx.draw_networkx_edge_labels(
-        graph,
-        pos,
-        ax=ax,
-        edge_labels=nx.get_edge_attributes(graph, "relation"),
-        font_size=8,
+def _status(message: str, level: str = "info") -> str:
+    palette = {
+        "info":    ("#1f2937", "#f3f4f6"),
+        "success": ("#0f5132", "#d1e7dd"),
+        "warn":    ("#664d03", "#fff3cd"),
+        "error":   ("#842029", "#f8d7da"),
+    }
+    fg, bg = palette.get(level, palette["info"])
+    return (
+        f'<div style="padding:0.65rem 0.9rem;border-radius:8px;'
+        f"background:{bg};color:{fg};font-size:0.92rem;"
+        f'border:1px solid rgba(0,0,0,0.05);">{message}</div>'
     )
 
-    fig.tight_layout()
-    return fig
 
+def _ingest(corpus: str, store: KnowledgeGraphStore):
+    if not corpus.strip():
+        return _ingest_outputs(
+            store, _status("Enter or select a corpus before processing.", "warn")
+        )
 
-def ask_graph(question: str):
     try:
-        return answer_question(graph, question)
-    except Exception as exc:
-        return f"Question answering failed: {exc}"
+        extracted = extract_knowledge_graph(corpus)
+    except ExtractionError as exc:
+        return _ingest_outputs(store, _status(f"Extraction failed: {exc}", "error"))
+
+    entities = extracted["entities"]
+    relationships = extracted["relationships"]
+    if not entities:
+        return _ingest_outputs(
+            store,
+            _status(
+                "No entities were extracted. Try a longer or more concrete passage.",
+                "warn",
+            ),
+        )
+
+    result = store.ingest(entities, relationships)
+    summary = (
+        f"Extracted {len(entities)} entities and {len(relationships)} relationships. "
+        f"Added {result.entities_added} new entities and "
+        f"{result.relationships_added} new relationships."
+    )
+    return _ingest_outputs(store, _status(summary, "success"))
 
 
-with gr.Blocks(title="NeuroGraph") as demo:
-    gr.Markdown("# NeuroGraph")
-    gr.Markdown("""
-    A lightweight integration of large language models and knowledge graphs.
+def _ingest_outputs(store: KnowledgeGraphStore, status_html: str):
+    return (
+        store,
+        status_html,
+        render_graph(store.graph),
+        store.entities_table(),
+        store.relationships_table(),
+        _stats_markdown(store),
+    )
 
-    ### Applications
-    - LLM-augmented KG: corpus ingestion and automated knowledge graph construction
-    - KG-enhanced LLM: graph-grounded question answering over extracted entities and relationships
-    """)
 
-    with gr.Tabs():
-        with gr.Tab("LLM-augmented KG: Ingest Corpus"):
-            corpus_input = gr.Textbox(
-                label="Corpus Input",
-                placeholder="Paste documents, notes, articles, transcripts, etc.",
-                lines=12,
-            )
+def _clear(store: KnowledgeGraphStore):
+    store.clear()
+    return _ingest_outputs(store, _status("Knowledge graph cleared.", "info"))
 
-            ingest_btn = gr.Button("Process Corpus")
 
-            ingest_status = gr.Textbox(label="Pipeline Status")
-            graph_output = gr.Plot(label="Knowledge Graph")
+def _load_sample(name: str) -> str:
+    return SAMPLE_CORPORA.get(name, "")
 
-            ingest_btn.click(
-                fn=ingest_corpus,
-                inputs=corpus_input,
-                outputs=[ingest_status, graph_output],
-            )
 
-        with gr.Tab("KG-enhanced LLM: Ask Questions"):
-            question_input = gr.Textbox(
-                label="Question",
-                placeholder="Ask something about the knowledge graph...",
-                lines=3,
-            )
+def _ask(question: str, store: KnowledgeGraphStore):
+    try:
+        result: AnswerResult = answer_question(store, question)
+    except QuestionAnsweringError as exc:
+        return f"Question answering failed: {exc}", ""
+    return result.answer, result.context
 
-            ask_btn = gr.Button("Ask")
 
-            answer_output = gr.Textbox(
-                label="LLM Response",
-                lines=10,
-            )
+THEME = gr.themes.Soft(primary_hue="indigo", neutral_hue="slate")
 
-            ask_btn.click(
-                fn=ask_graph,
-                inputs=question_input,
-                outputs=answer_output,
-            )
+CSS = """
+.neurograph-title h1 { margin-bottom: 0.1rem; }
+.stats-bar { padding: 0.6rem 0.9rem; border-radius: 8px;
+             background: #f8fafc; border: 1px solid #e2e8f0; }
+.tab-intro { color: #475569; margin-top: 0.25rem; margin-bottom: 0.5rem; }
+footer { visibility: hidden; }
+"""
+
+
+def build_ui() -> gr.Blocks:
+    with gr.Blocks(title="NeuroGraph") as demo:
+        store_state = gr.State(KnowledgeGraphStore())
+
+        gr.Markdown(
+            "# NeuroGraph\n"
+            "A workbench for the two-way integration of large language models "
+            "and knowledge graphs.",
+            elem_classes=["neurograph-title"],
+        )
+        stats = gr.Markdown(
+            _stats_markdown(KnowledgeGraphStore()),
+            elem_classes=["stats-bar"],
+        )
+
+        graph_plot = gr.Plot(
+            value=render_graph(nx.DiGraph()),
+            label="Knowledge Graph",
+            show_label=False,
+        )
+
+        with gr.Tabs():
+            with gr.Tab("LLM-augmented KG · Build"):
+                gr.Markdown(
+                    "Use a language model to extract entities and relationships "
+                    "from a corpus, then merge them into the knowledge graph.",
+                    elem_classes=["tab-intro"],
+                )
+                with gr.Row():
+                    with gr.Column(scale=3):
+                        sample_dropdown = gr.Dropdown(
+                            label="Sample corpus",
+                            choices=list(SAMPLE_CORPORA.keys()),
+                            value="— Choose a sample —",
+                            interactive=True,
+                        )
+                        corpus_input = gr.Textbox(
+                            label="Corpus",
+                            placeholder=(
+                                "Paste documents, notes, articles, transcripts…"
+                            ),
+                            lines=12,
+                        )
+                    with gr.Column(scale=1):
+                        ingest_btn = gr.Button("Process Corpus", variant="primary")
+                        clear_btn = gr.Button("Clear Graph", variant="secondary")
+                        ingest_status = gr.Markdown(_status(INITIAL_STATUS, "info"))
+
+                with gr.Row():
+                    entities_df = gr.Dataframe(
+                        headers=ENTITY_HEADERS,
+                        datatype=["str", "str", "str"],
+                        value=[],
+                        label="Entities",
+                        interactive=False,
+                        wrap=True,
+                    )
+                    relationships_df = gr.Dataframe(
+                        headers=RELATIONSHIP_HEADERS,
+                        datatype=["str", "str", "str", "str"],
+                        value=[],
+                        label="Relationships",
+                        interactive=False,
+                        wrap=True,
+                    )
+
+            with gr.Tab("KG-enhanced LLM · Ask"):
+                gr.Markdown(
+                    "Ask questions whose answers are grounded only in facts "
+                    "present in the current knowledge graph.",
+                    elem_classes=["tab-intro"],
+                )
+                question_input = gr.Textbox(
+                    label="Question",
+                    placeholder="Ask a question about the entities in the graph…",
+                    lines=3,
+                )
+                ask_btn = gr.Button("Ask", variant="primary")
+                answer_output = gr.Textbox(
+                    label="Answer",
+                    lines=6,
+                    interactive=False,
+                )
+                with gr.Accordion(
+                    "Show graph context sent to the model", open=False
+                ):
+                    context_output = gr.Textbox(
+                        label="Context",
+                        lines=15,
+                        interactive=False,
+                    )
+                gr.Examples(
+                    examples=EXAMPLE_QUESTIONS,
+                    inputs=question_input,
+                    label="Example questions",
+                )
+
+        sample_dropdown.change(
+            fn=_load_sample,
+            inputs=sample_dropdown,
+            outputs=corpus_input,
+        )
+        ingest_btn.click(
+            fn=_ingest,
+            inputs=[corpus_input, store_state],
+            outputs=[
+                store_state,
+                ingest_status,
+                graph_plot,
+                entities_df,
+                relationships_df,
+                stats,
+            ],
+        )
+        clear_btn.click(
+            fn=_clear,
+            inputs=store_state,
+            outputs=[
+                store_state,
+                ingest_status,
+                graph_plot,
+                entities_df,
+                relationships_df,
+                stats,
+            ],
+        )
+        ask_btn.click(
+            fn=_ask,
+            inputs=[question_input, store_state],
+            outputs=[answer_output, context_output],
+        )
+
+    return demo
+
 
 if __name__ == "__main__":
-    demo.launch()
+    build_ui().launch(theme=THEME, css=CSS)
