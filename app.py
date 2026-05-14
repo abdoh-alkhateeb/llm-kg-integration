@@ -8,10 +8,12 @@ Hosts two applications side-by-side over a shared, per-session knowledge graph:
 
 from __future__ import annotations
 
+import html
+
 import gradio as gr
 import networkx as nx
 
-from config import OLLAMA_MODEL
+from config import MAX_CORPUS_CHARS, OLLAMA_MODEL
 from kg_enhanced_llm import (
     AnswerResult,
     QuestionAnsweringError,
@@ -21,8 +23,10 @@ from kg_store import KnowledgeGraphStore
 from kg_visualizer import render_graph
 from llm_augmented_kg import ExtractionError, extract_knowledge_graph
 
+PLACEHOLDER_SAMPLE = "— Choose a sample —"
+
 SAMPLE_CORPORA: dict[str, str] = {
-    "— Choose a sample —": "",
+    PLACEHOLDER_SAMPLE: "",
     "Albert Einstein (biography)": (
         "Albert Einstein was a German-born theoretical physicist who developed "
         "the theory of relativity. He was born in Ulm, Germany in 1879 and later "
@@ -52,7 +56,7 @@ EXAMPLE_QUESTIONS: list[list[str]] = [
 ]
 
 ENTITY_HEADERS = ["Entity", "Type", "Description"]
-RELATIONSHIP_HEADERS = ["Source", "Relation", "Target", "Evidence"]
+RELATIONSHIP_HEADERS = ["Source", "Relation", "Target"]
 
 INITIAL_STATUS = "Ready. Paste or select a corpus to begin."
 
@@ -78,18 +82,25 @@ def _status(message: str, level: str = "info") -> str:
     return (
         f'<div style="padding:0.65rem 0.9rem;border-radius:8px;'
         f"background:{bg};color:{fg};font-size:0.92rem;"
-        f'border:1px solid rgba(0,0,0,0.05);">{message}</div>'
+        f'border:1px solid rgba(0,0,0,0.05);">{html.escape(message)}</div>'
     )
 
 
 def _ingest(corpus: str, store: KnowledgeGraphStore):
-    if not corpus.strip():
+    text = corpus.strip()
+    if not text:
         return _ingest_outputs(
             store, _status("Enter or select a corpus before processing.", "warn")
         )
 
+    truncation_note = ""
+    if len(text) > MAX_CORPUS_CHARS:
+        truncation_note = (
+            f" Corpus exceeded {MAX_CORPUS_CHARS:,} characters and was truncated."
+        )
+
     try:
-        extracted = extract_knowledge_graph(corpus)
+        extracted = extract_knowledge_graph(text)
     except ExtractionError as exc:
         return _ingest_outputs(store, _status(f"Extraction failed: {exc}", "error"))
 
@@ -99,7 +110,8 @@ def _ingest(corpus: str, store: KnowledgeGraphStore):
         return _ingest_outputs(
             store,
             _status(
-                "No entities were extracted. Try a longer or more concrete passage.",
+                "No entities were extracted. "
+                "Try a longer or more concrete passage." + truncation_note,
                 "warn",
             ),
         )
@@ -108,7 +120,7 @@ def _ingest(corpus: str, store: KnowledgeGraphStore):
     summary = (
         f"Extracted {len(entities)} entities and {len(relationships)} relationships. "
         f"Added {result.entities_added} new entities and "
-        f"{result.relationships_added} new relationships."
+        f"{result.relationships_added} new relationships." + truncation_note
     )
     return _ingest_outputs(store, _status(summary, "success"))
 
@@ -129,8 +141,16 @@ def _clear(store: KnowledgeGraphStore):
     return _ingest_outputs(store, _status("Knowledge graph cleared.", "info"))
 
 
-def _load_sample(name: str) -> str:
-    return SAMPLE_CORPORA.get(name, "")
+def _load_sample(name: str):
+    """Populate the corpus textarea from the sample dropdown.
+
+    Returning `gr.update()` (no change) for the placeholder option prevents
+    re-selecting "— Choose a sample —" from wiping a corpus the user is
+    actively editing.
+    """
+    if not name or name == PLACEHOLDER_SAMPLE:
+        return gr.update()
+    return SAMPLE_CORPORA.get(name, gr.update())
 
 
 def _ask(question: str, store: KnowledgeGraphStore):
@@ -244,7 +264,7 @@ def build_ui() -> gr.Blocks:
                         sample_dropdown = gr.Dropdown(
                             label="Sample corpus",
                             choices=list(SAMPLE_CORPORA.keys()),
-                            value="— Choose a sample —",
+                            value=PLACEHOLDER_SAMPLE,
                             interactive=True,
                         )
                         corpus_input = gr.Textbox(
@@ -270,7 +290,7 @@ def build_ui() -> gr.Blocks:
                     )
                     relationships_df = gr.Dataframe(
                         headers=RELATIONSHIP_HEADERS,
-                        datatype=["str", "str", "str", "str"],
+                        datatype=["str", "str", "str"],
                         value=[],
                         label="Relationships",
                         interactive=False,

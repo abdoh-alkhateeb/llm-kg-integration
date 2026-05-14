@@ -6,7 +6,6 @@ or swapped for a different backend without touching the UI.
 
 from __future__ import annotations
 
-import matplotlib.pyplot as plt
 import networkx as nx
 from matplotlib.figure import Figure
 from matplotlib.lines import Line2D
@@ -27,9 +26,15 @@ EMPTY_STATE_MESSAGE = (
 
 
 def render_graph(graph: nx.DiGraph) -> Figure:
-    """Render `graph` as a clean, legible matplotlib figure."""
-    fig, ax = plt.subplots(figsize=(11, 6.5))
+    """Render `graph` as a clean, legible matplotlib figure.
+
+    Uses the matplotlib OO API (`Figure` rather than `pyplot.subplots`) so
+    every call produces a self-contained figure that isn't retained by
+    pyplot's global figure registry — important for a long-running server.
+    """
+    fig = Figure(figsize=(11, 6.5))
     fig.patch.set_facecolor("#ffffff")
+    ax = fig.add_subplot(111)
     ax.set_facecolor("#ffffff")
     ax.set_axis_off()
 

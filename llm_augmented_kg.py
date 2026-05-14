@@ -24,7 +24,7 @@ Return only valid JSON with this exact shape:
     {"id": "canonical entity name", "type": "person|organization|place|concept|event|other", "description": "short description"}
   ],
   "relationships": [
-    {"source": "entity id", "target": "entity id", "relation": "short verb phrase", "evidence": "short source text quote or paraphrase"}
+    {"source": "entity id", "target": "entity id", "relation": "short verb phrase"}
   ]
 }
 Rules:
@@ -142,7 +142,6 @@ def _clean_relationships(
                 "source": source,
                 "target": target,
                 "relation": relation,
-                "evidence": str(item.get("evidence", "")).strip(),
             }
         )
 

@@ -32,14 +32,6 @@ class IngestionResult:
     relationships_added: int
     relationships_updated: int
 
-    @property
-    def total_entities_touched(self) -> int:
-        return self.entities_added + self.entities_updated
-
-    @property
-    def total_relationships_touched(self) -> int:
-        return self.relationships_added + self.relationships_updated
-
 
 class KnowledgeGraphStore:
     """In-memory knowledge graph store with a typed, intention-revealing API."""
@@ -114,7 +106,6 @@ class KnowledgeGraphStore:
                 source,
                 target,
                 relation=rel.get("relation", "related to"),
-                evidence=rel.get("evidence", ""),
             )
         return added, updated
 
@@ -126,14 +117,18 @@ class KnowledgeGraphStore:
         ]
 
     def relationships_table(self) -> list[list[str]]:
-        """Return relationships as `[source, relation, target, evidence]` rows."""
+        """Return relationships as `[source, relation, target]` rows."""
         return [
-            [src, data.get("relation", ""), tgt, data.get("evidence", "")]
+            [src, data.get("relation", ""), tgt]
             for src, tgt, data in self._graph.edges(data=True)
         ]
 
     def to_text(self, max_chars: int | None = None) -> str:
-        """Serialize the graph to a plain-text block suitable for LLM context."""
+        """Serialize the graph to a plain-text block suitable for LLM context.
+
+        When `max_chars` is set and exceeded, truncation happens at the
+        nearest preceding line boundary so the model never sees a half-fact.
+        """
         if self.is_empty():
             return "The knowledge graph is empty."
 
@@ -147,11 +142,13 @@ class KnowledgeGraphStore:
         lines.append("Relationships:")
         for source, target, data in self._graph.edges(data=True):
             relation = data.get("relation", "related to") or "related to"
-            evidence = data.get("evidence", "")
-            evidence_suffix = f" [evidence: {evidence}]" if evidence else ""
-            lines.append(f"- {source} --{relation}--> {target}{evidence_suffix}")
+            lines.append(f"- {source} --{relation}--> {target}")
 
         text = "\n".join(lines)
         if max_chars is not None and len(text) > max_chars:
-            text = text[:max_chars].rstrip() + "\n... [graph truncated]"
+            head = text[:max_chars]
+            cutoff = head.rfind("\n")
+            if cutoff > 0:
+                head = head[:cutoff]
+            text = head.rstrip() + "\n... [graph truncated]"
         return text
