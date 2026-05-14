@@ -141,13 +141,72 @@ def _ask(question: str, store: KnowledgeGraphStore):
     return result.answer, result.context
 
 
-THEME = gr.themes.Soft(primary_hue="indigo", neutral_hue="slate")
+THEME = gr.themes.Soft(
+    primary_hue="indigo",
+    neutral_hue="slate",
+    font=[
+        gr.themes.GoogleFont("Inter"),
+        "system-ui",
+        "-apple-system",
+        "Segoe UI",
+        "Roboto",
+        "Helvetica Neue",
+        "sans-serif",
+    ],
+    font_mono=[
+        gr.themes.GoogleFont("Source Code Pro"),
+        "ui-monospace",
+        "SFMono-Regular",
+        "Consolas",
+        "Menlo",
+        "monospace",
+    ],
+)
 
 CSS = """
-.neurograph-title h1 { margin-bottom: 0.1rem; }
-.stats-bar { padding: 0.6rem 0.9rem; border-radius: 8px;
-             background: #f8fafc; border: 1px solid #e2e8f0; }
-.tab-intro { color: #475569; margin-top: 0.25rem; margin-bottom: 0.5rem; }
+:root, .gradio-container {
+    font-feature-settings: "liga" 0, "calt" 0, "ss01" 0, "ss02" 0,
+                            "ss03" 0, "ss04" 0, "ss05" 0, "zero" 0;
+}
+.gradio-container code,
+.gradio-container pre,
+.gradio-container kbd,
+.gradio-container samp {
+    font-feature-settings: "liga" 0, "calt" 0, "ss01" 0, "ss02" 0,
+                            "ss03" 0, "ss04" 0, "ss05" 0, "zero" 0;
+    font-variant-ligatures: none;
+}
+
+.neurograph-title h1 {
+    margin: 0 0 0.15rem 0;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+}
+.neurograph-title p { margin: 0 0 0.25rem 0; }
+
+.stats-bar {
+    padding: 0.6rem 0.9rem;
+    border-radius: 8px;
+    background: var(--background-fill-secondary);
+    border: 1px solid var(--border-color-primary);
+    color: var(--body-text-color);
+}
+.stats-bar p { color: var(--body-text-color); margin: 0; }
+.stats-bar code {
+    color: var(--body-text-color);
+    background: var(--background-fill-primary);
+    padding: 0.05rem 0.4rem;
+    border-radius: 4px;
+    border: 1px solid var(--border-color-primary);
+    font-size: 0.88em;
+}
+
+.tab-intro {
+    color: var(--body-text-color-subdued);
+    margin-top: 0.25rem;
+    margin-bottom: 0.5rem;
+}
+
 footer { visibility: hidden; }
 """
 
