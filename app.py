@@ -11,7 +11,6 @@ from __future__ import annotations
 import html
 
 import gradio as gr
-import networkx as nx
 
 from config import MAX_CORPUS_CHARS, OLLAMA_MODEL
 from kg_enhanced_llm import (
@@ -246,8 +245,8 @@ def build_ui() -> gr.Blocks:
             elem_classes=["stats-bar"],
         )
 
-        graph_plot = gr.Plot(
-            value=render_graph(nx.DiGraph()),
+        graph_view = gr.HTML(
+            value=render_graph(KnowledgeGraphStore().graph),
             label="Knowledge Graph",
             show_label=False,
         )
@@ -339,7 +338,7 @@ def build_ui() -> gr.Blocks:
             outputs=[
                 store_state,
                 ingest_status,
-                graph_plot,
+                graph_view,
                 entities_df,
                 relationships_df,
                 stats,
@@ -351,7 +350,7 @@ def build_ui() -> gr.Blocks:
             outputs=[
                 store_state,
                 ingest_status,
-                graph_plot,
+                graph_view,
                 entities_df,
                 relationships_df,
                 stats,
